@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Azure Pipeline Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #080c14;
+      --bg2: #0d1421;
+      --bg3: #111a2d;
+      --border: rgba(50, 120, 220, 0.18);
+      --border2: rgba(50, 120, 220, 0.35);
+      --text: #c8d8f0;
+      --text2: #6a8ab0;
+      --text3: #3a5070;
+      --accent: #1e7ef7;
+      --accent2: #0d5fc4;
+      --green: #00d97e;
+      --green2: rgba(0, 217, 126, 0.12);
+      --amber: #f5a623;
+      --amber2: rgba(245, 166, 35, 0.12);
+      --red: #f53d3d;
+      --red2: rgba(245, 61, 61, 0.12);
+      --purple: #a78bfa;
+      --teal: #22d3ee;
+      --mono: 'JetBrains Mono', monospace;
+      --sans: 'DM Sans', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(30, 126, 247, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(30, 126, 247, 0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Top glow */
+    body::after {
+      content: '';
+      position: fixed;
+      top: -200px; left: 50%;
+      transform: translateX(-50%);
+      width: 800px; height: 400px;
+      background: radial-gradient(ellipse, rgba(30, 126, 247, 0.08) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container { position: relative; z-index: 1; max-width: 1440px; margin: 0 auto; padding: 0 24px; }
+
+    /* Header */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(8, 12, 20, 0.8);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .logo-text {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+    }
+
+    .logo-sub {
+      font-size: 11px;
+      color: var(--text2);
+      font-family: var(--mono);
+      margin-top: 1px;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .env-badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: rgba(0, 217, 126, 0.12);
+      color: var(--green);
+      border: 1px solid rgba(0, 217, 126, 0.3);
+      letter-spacing: 0.5px;
+    }
+
+    .clock {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text2);
+    }
+
+    /* Main grid */
+    main { padding: 28px 24px; }
+
+    /* Status bar */
+    .status-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .stat-card:hover { border-color: var(--border2); }
+
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+    }
+
+    .stat-card.blue::before  { background: linear-gradient(90deg, var(--accent), transparent); }
+    .stat-card.green::before { background: linear-gradient(90deg, var(--green), transparent); }
+    .stat-card.amber::before { background: linear-gradient(90deg, var(--amber), transparent); }
+    .stat-card.purple::before { background: linear-gradient(90deg, var(--purple), transparent); }
+    .stat-card.teal::before  { background: linear-gradient(90deg, var(--teal), transparent); }
+
+    .stat-label {
+      font-size: 11px;
+      color: var(--text2);
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 26px;
+      font-weight: 600;
+      font-family: var(--mono);
+      letter-spacing: -1px;
+      line-height: 1;
+    }
+
+    .stat-value.green { color: var(--green); }
+    .stat-value.amber { color: var(--amber); }
+    .stat-value.blue  { color: var(--accent); }
+    .stat-value.teal  { color: var(--teal); }
+    .stat-value.purple { color: var(--purple); }
+
+    .stat-delta {
+      font-size: 11px;
+      color: var(--text2);
+      margin-top: 4px;
+      font-family: var(--mono);
+    }
+
+    .stat-delta.up   { color: var(--green); }
+    .stat-delta.down { color: var(--red); }
+
+    /* Panel row */
+    .panel-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .panel-row.thirds {
+      grid-template-columns: 2fr 1fr;
+    }
+
+    @media (max-width: 900px) {
+      .panel-row, .panel-row.thirds { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-title {
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text2);
+    }
+
+    .live-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0, 217, 126, 0.4); }
+      50% { opacity: 0.8; box-shadow: 0 0 0 4px rgba(0, 217, 126, 0); }
+    }
+
+    .panel-body { padding: 18px; }
+
+    /* Throughput chart */
+    #throughput-chart {
+      width: 100%;
+      height: 140px;
+      display: block;
+    }
+
+    /* Layer status */
+    .layer-list { display: flex; flex-direction: column; gap: 10px; }
+
+    .layer-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      background: var(--bg3);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .layer-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .layer-dot.healthy { background: var(--green); }
+    .layer-dot.degraded { background: var(--amber); }
+    .layer-dot.critical { background: var(--red); }
+
+    .layer-name {
+      font-size: 13px;
+      font-weight: 500;
+      flex: 1;
+    }
+
+    .layer-meta {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text2);
+    }
+
+    .layer-latency {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--teal);
+      min-width: 50px;
+      text-align: right;
+    }
+
+    /* Event stream */
+    #event-stream {
+      height: 240px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    #event-stream::-webkit-scrollbar { width: 4px; }
+    #event-stream::-webkit-scrollbar-track { background: transparent; }
+    #event-stream::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+    .event-row {
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 3px 0;
+      animation: slideIn 0.2s ease;
+      line-height: 1.6;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .event-time  { color: var(--text3); min-width: 70px; }
+    .event-badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-weight: 500;
+      flex-shrink: 0;
+    }
+    .badge-info    { background: rgba(30, 126, 247, 0.15); color: var(--accent); }
+    .badge-ok      { background: var(--green2); color: var(--green); }
+    .badge-warn    { background: var(--amber2); color: var(--amber); }
+    .badge-alert   { background: var(--red2); color: var(--red); }
+    .event-msg { color: var(--text2); }
+    .event-msg em { color: var(--text); font-style: normal; }
+
+    /* Anomaly table */
+    .anomaly-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .anomaly-table th {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .anomaly-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid rgba(50, 120, 220, 0.07);
+      color: var(--text);
+      font-family: var(--mono);
+    }
+    .anomaly-table tr:last-child td { border-bottom: none; }
+    .anomaly-table tr:hover td { background: rgba(30, 126, 247, 0.04); }
+
+    .severity-chip {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 3px;
+      font-weight: 500;
+    }
+    .sev-high   { background: var(--red2);   color: var(--red); }
+    .sev-medium { background: var(--amber2);  color: var(--amber); }
+    .sev-low    { background: var(--green2);  color: var(--green); }
+
+    /* Throughput bars (mini) */
+    .region-bars { display: flex; flex-direction: column; gap: 12px; }
+    .region-row { display: flex; align-items: center; gap: 10px; }
+    .region-label { font-size: 12px; color: var(--text2); min-width: 80px; font-family: var(--mono); }
+    .region-bar-wrap { flex: 1; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+    .region-bar { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), var(--teal)); transition: width 1s ease; }
+    .region-val { font-family: var(--mono); font-size: 11px; color: var(--teal); min-width: 52px; text-align: right; }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 20px 24px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--text3);
+      font-family: var(--mono);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    <div>
+      <div class="logo-text">Azure Pipeline Monitor</div>
+      <div class="logo-sub">realtime-telemetry-pipeline / prod</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="env-badge">● LIVE</span>
+    <span class="clock" id="clock">--:--:--</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- KPI Cards -->
+  <div class="status-bar">
+    <div class="stat-card blue">
+      <div class="stat-label">Events / sec</div>
+      <div class="stat-value blue" id="kpi-eps">0</div>
+      <div class="stat-delta up" id="kpi-eps-delta">↑ initialising</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">E2E Latency p99</div>
+      <div class="stat-value green" id="kpi-latency">—</div>
+      <div class="stat-delta" id="kpi-latency-delta">ms</div>
+    </div>
+    <div class="stat-card teal">
+      <div class="stat-label">Events ingested</div>
+      <div class="stat-value teal" id="kpi-total">0</div>
+      <div class="stat-delta">total today</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="stat-label">Anomaly rate</div>
+      <div class="stat-value amber" id="kpi-anomaly">0.0%</div>
+      <div class="stat-delta" id="kpi-anomaly-delta">last 5 min</div>
+    </div>
+    <div class="stat-card purple">
+      <div class="stat-label">Active devices</div>
+      <div class="stat-value purple" id="kpi-devices">0</div>
+      <div class="stat-delta">unique IDs seen</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">Pipeline health</div>
+      <div class="stat-value green" id="kpi-health">100%</div>
+      <div class="stat-delta up">All layers nominal</div>
+    </div>
+  </div>
+
+  <!-- Throughput chart + Layer status -->
+  <div class="panel-row thirds">
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Ingestion Throughput</span>
+        <div class="live-dot"></div>
+      </div>
+      <div class="panel-body">
+        <canvas id="throughput-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Pipeline Layers</span>
+        <div class="live-dot"></div>
+      </div>
+      <div class="panel-body">
+        <div class="layer-list" id="layer-list">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Event log + Anomalies -->
+  <div class="panel-row">
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Live Event Stream</span>
+        <div class="live-dot"></div>
+      </div>
+      <div class="panel-body" style="padding: 12px 16px;">
+        <div id="event-stream"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Recent Anomalies</span>
+        <span style="font-family: var(--mono); font-size: 11px; color: var(--red);" id="anomaly-count-badge">0 alerts</span>
+      </div>
+      <div class="panel-body" style="padding: 0;">
+        <table class="anomaly-table">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>Type</th>
+              <th>Value</th>
+              <th>Severity</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="anomaly-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Regional throughput -->
+  <div class="panel-row">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Throughput by Region</span>
+      </div>
+      <div class="panel-body">
+        <div class="region-bars" id="region-bars"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Medallion Layer SLA</span>
+      </div>
+      <div class="panel-body">
+        <div id="sla-bars" class="region-bars"></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer>azure-realtime-pipeline · generated by pipeline-monitor · data refreshes every 2s · demo simulation</footer>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+const MAX_CHART_POINTS = 40;
+const chartData = Array(MAX_CHART_POINTS).fill(0);
+let totalEvents = 0;
+let devicesSeen = new Set();
+let anomalies = [];
+let baseEps = 4800 + Math.random() * 400;
+
+// ============================================================
+// Clock
+// ============================================================
+function updateClock() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('en-GB', { hour12: false });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ============================================================
+// Simulated telemetry (in production: swap for EventHub/SignalR)
+// ============================================================
+function randBetween(a, b) { return a + Math.random() * (b - a); }
+function randInt(a, b) { return Math.floor(randBetween(a, b)); }
+function randChoice(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+const deviceTypes = ['sensor_v2', 'gateway_v3', 'actuator_v1', 'edge_compute'];
+const regions = ['uksouth', 'westeurope', 'eastus', 'southeastasia'];
+const alertTypes = ['TEMP_HIGH', 'BATTERY_CRITICAL', 'MODEL_ALERT', 'HUMIDITY_INVALID'];
+
+function generateEvent() {
+  const deviceId = `device-${randInt(1000, 9999)}`;
+  devicesSeen.add(deviceId);
+  return {
+    deviceId,
+    deviceType: randChoice(deviceTypes),
+    region: randChoice(regions),
+    temp: randBetween(-5, 90),
+    battery: randBetween(5, 100),
+    isAnomaly: Math.random() < 0.025,
+    timestamp: new Date(),
+  };
+}
+
+// ============================================================
+// KPI update
+// ============================================================
+function updateKpis() {
+  // Jitter around base EPS
+  const eps = Math.round(baseEps + randBetween(-200, 200));
+  baseEps = 0.95 * baseEps + 0.05 * (4800 + Math.random() * 600);
+
+  chartData.push(eps);
+  if (chartData.length > MAX_CHART_POINTS) chartData.shift();
+
+  totalEvents += eps * 2;  // 2s interval
+  const anomalyRate = (anomalies.length > 0) ? (anomalies.filter(a => {
+    return (Date.now() - a.time) < 300_000;  // last 5 min
+  }).length / Math.max(totalEvents / 150_000, 1)).toFixed(2) : (Math.random() * 0.04).toFixed(2);
+
+  document.getElementById('kpi-eps').textContent      = eps.toLocaleString();
+  document.getElementById('kpi-latency').textContent  = randInt(340, 780);
+  document.getElementById('kpi-total').textContent    = (totalEvents / 1_000_000).toFixed(2) + 'M';
+  document.getElementById('kpi-anomaly').textContent  = anomalyRate + '%';
+  document.getElementById('kpi-devices').textContent  = devicesSeen.size;
+
+  const delta = eps > baseEps ? 'up' : 'down';
+  document.getElementById('kpi-eps-delta').textContent = `↑ ${randInt(2,8)}% from last min`;
+  document.getElementById('kpi-eps-delta').className  = `stat-delta ${delta}`;
+
+  drawChart();
+}
+
+// ============================================================
+// Canvas Chart
+// ============================================================
+function drawChart() {
+  const canvas = document.getElementById('throughput-chart');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.parentElement.offsetWidth - 36;
+  const H = 140;
+  canvas.width = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  ctx.clearRect(0, 0, W, H);
+
+  const max = Math.max(...chartData, 1000);
+  const pts = chartData.map((v, i) => ({
+    x: (i / (MAX_CHART_POINTS - 1)) * W,
+    y: H - 20 - (v / max) * (H - 30),
+  }));
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(30, 126, 247, 0.25)');
+  grad.addColorStop(1, 'rgba(30, 126, 247, 0)');
+
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, H);
+  pts.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.lineTo(pts[pts.length - 1].x, H);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i].x + pts[i + 1].x) / 2;
+    const my = (pts[i].y + pts[i + 1].y) / 2;
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+  }
+  ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+  ctx.strokeStyle = '#1e7ef7';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Last value label
+  const last = pts[pts.length - 1];
+  ctx.fillStyle = '#c8d8f0';
+  ctx.font = `500 11px 'JetBrains Mono'`;
+  ctx.fillText(chartData[chartData.length - 1].toLocaleString() + ' ev/s', last.x - 80, last.y - 8);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(50, 120, 220, 0.1)';
+  ctx.lineWidth = 0.5;
+  [0.25, 0.5, 0.75].forEach(f => {
+    const y = H - 20 - f * (H - 30);
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(106, 138, 176, 0.6)';
+    ctx.font = '10px JetBrains Mono';
+    ctx.fillText(Math.round(max * f / 1000) + 'K', 2, y - 3);
+  });
+}
+
+// ============================================================
+// Layer status
+// ============================================================
+const layers = [
+  { name: 'Event Hubs (Kafka)', status: 'healthy', meta: '32 partitions', latency: '12ms' },
+  { name: 'Databricks Streaming', status: 'healthy', meta: 'Bronze→Silver', latency: '28ms' },
+  { name: 'Delta Live Tables', status: 'healthy', meta: 'Silver→Gold', latency: '45ms' },
+  { name: 'Synapse Analytics', status: 'healthy', meta: 'DW500c active', latency: '180ms' },
+  { name: 'Cosmos DB Lookups', status: 'healthy', meta: 'device_registry', latency: '4ms' },
+  { name: 'Power BI Streaming', status: 'healthy', meta: '1-min refresh', latency: '—' },
+];
+
+function renderLayers() {
+  const jitter = Math.random();
+  const html = layers.map(l => {
+    // Occasionally show a degraded state
+    const status = (jitter > 0.96 && l.name.includes('Synapse')) ? 'degraded' : l.status;
+    const latency = l.latency === '—' ? '—' :
+      Math.round(parseInt(l.latency) * (0.85 + Math.random() * 0.3)) + 'ms';
+    return `<div class="layer-item">
+      <div class="layer-dot ${status}"></div>
+      <div class="layer-name">${l.name}</div>
+      <div class="layer-meta">${l.meta}</div>
+      <div class="layer-latency">${latency}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('layer-list').innerHTML = html;
+}
+
+// ============================================================
+// Event stream log
+// ============================================================
+const eventTypes = [
+  { badge: 'INFO', cls: 'badge-info',  msgs: [
+    'Batch flushed to <em>Bronze</em> Delta table',
+    '<em>Silver</em> merge completed — {n} rows upserted',
+    'ZORDER optimization completed on <em>Gold</em>',
+    '<em>Cosmos DB</em> device registry refreshed',
+    'Databricks autoscale: workers <em>{a} → {b}</em>',
+  ]},
+  { badge: 'OK',   cls: 'badge-ok', msgs: [
+    '<em>{n}</em> events processed in micro-batch',
+    'Checkpoint saved — offset <em>{n}</em>',
+    'Schema validation passed for partition <em>{p}</em>',
+    'Stream Analytics output written to <em>Synapse</em>',
+  ]},
+  { badge: 'WARN', cls: 'badge-warn', msgs: [
+    'Late arrival: <em>{n}</em> events beyond watermark',
+    'Retry attempt <em>2/5</em> for batch send',
+    'Battery critical: device-<em>{d}</em> at {b}%',
+  ]},
+  { badge: 'ALERT',cls: 'badge-alert', msgs: [
+    'Anomaly detected — device-<em>{d}</em> temp {t}°C',
+  ]},
+];
+
+const streamEl = document.getElementById('event-stream');
+const MAX_LOG_ROWS = 80;
+
+function addEventLog() {
+  const count = randInt(1, 3);
+  for (let i = 0; i < count; i++) {
+    const typeIdx = Math.random() < 0.05 ? 3 : Math.random() < 0.1 ? 2 : Math.random() < 0.3 ? 0 : 1;
+    const et = eventTypes[typeIdx];
+    const msg = randChoice(et.msgs)
+      .replace('{n}', randInt(1000, 50000).toLocaleString())
+      .replace('{a}', randInt(2, 6))
+      .replace('{b}', randInt(3, 8))
+      .replace('{p}', randInt(0, 31))
+      .replace('{d}', randInt(1000, 9999))
+      .replace('{t}', randBetween(82, 95).toFixed(1))
+      .replace('{b}', randInt(3, 9));
+
+    const row = document.createElement('div');
+    row.className = 'event-row';
+    row.innerHTML = `
+      <span class="event-time">${new Date().toLocaleTimeString('en-GB', { hour12: false })}</span>
+      <span class="event-badge ${et.cls}">${et.badge}</span>
+      <span class="event-msg">${msg}</span>
+    `;
+    streamEl.insertBefore(row, streamEl.firstChild);
+  }
+  while (streamEl.children.length > MAX_LOG_ROWS) streamEl.removeChild(streamEl.lastChild);
+}
+
+// ============================================================
+// Anomaly table
+// ============================================================
+function addAnomaly() {
+  if (Math.random() > 0.15) return;
+  const anom = {
+    device: `device-${randInt(1000, 9999)}`,
+    type: randChoice(alertTypes),
+    value: randBetween(82, 96).toFixed(1) + '°C',
+    severity: randChoice(['high', 'medium', 'low']),
+    time: Date.now(),
+  };
+  anomalies.unshift(anom);
+  if (anomalies.length > 20) anomalies.pop();
+
+  const tbody = document.getElementById('anomaly-tbody');
+  const ago = t => {
+    const s = Math.round((Date.now() - t) / 1000);
+    return s < 60 ? `${s}s ago` : `${Math.floor(s/60)}m ago`;
+  };
+
+  tbody.innerHTML = anomalies.slice(0, 8).map(a => `
+    <tr>
+      <td>${a.device}</td>
+      <td>${a.type}</td>
+      <td>${a.value}</td>
+      <td><span class="severity-chip sev-${a.severity}">${a.severity}</span></td>
+      <td>${ago(a.time)}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('anomaly-count-badge').textContent =
+    `${anomalies.filter(a => (Date.now() - a.time) < 300_000).length} alerts`;
+}
+
+// ============================================================
+// Regional throughput bars
+// ============================================================
+const regionData = {
+  'uksouth': 0.85,
+  'westeurope': 0.72,
+  'eastus': 0.91,
+  'southeastasia': 0.54,
+  'australiaeast': 0.38,
+};
+
+function renderRegionBars() {
+  const max = Math.max(...Object.values(regionData));
+  document.getElementById('region-bars').innerHTML = Object.entries(regionData).map(([r, v]) => {
+    const jittered = Math.min(1, v + randBetween(-0.03, 0.03));
+    const eps = Math.round(jittered * 1200);
+    return `<div class="region-row">
+      <div class="region-label">${r}</div>
+      <div class="region-bar-wrap">
+        <div class="region-bar" style="width:${(jittered/max*100).toFixed(1)}%"></div>
+      </div>
+      <div class="region-val">${eps.toLocaleString()} ev/s</div>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// Medallion SLA bars
+// ============================================================
+const slaData = [
+  { name: 'Bronze SLA  (< 30s)',  target: 30,  actual: () => randInt(8, 25) },
+  { name: 'Silver SLA  (< 2min)', target: 120, actual: () => randInt(40, 110) },
+  { name: 'Gold SLA    (< 15min)',target: 900, actual: () => randInt(300, 700) },
+  { name: 'Synapse load (< 5min)',target: 300, actual: () => randInt(60, 250) },
+];
+
+function renderSlaBars() {
+  document.getElementById('sla-bars').innerHTML = slaData.map(s => {
+    const val = s.actual();
+    const pct = Math.min(100, (val / s.target) * 100);
+    const color = pct < 60 ? '#00d97e' : pct < 85 ? '#f5a623' : '#f53d3d';
+    const unit = val >= 60 ? `${Math.floor(val/60)}m ${val%60}s` : `${val}s`;
+    return `<div class="region-row">
+      <div class="region-label" style="font-size:11px">${s.name}</div>
+      <div class="region-bar-wrap">
+        <div class="region-bar" style="width:${pct.toFixed(0)}%; background: linear-gradient(90deg, ${color}, ${color}88)"></div>
+      </div>
+      <div class="region-val" style="color:${color}">${unit}</div>
+    </div>`;
+  }).join('');
+}
+
+// ============================================================
+// Main tick loop (2s)
+// ============================================================
+function tick() {
+  updateKpis();
+  renderLayers();
+  addEventLog();
+  addAnomaly();
+  renderRegionBars();
+  renderSlaBars();
+  // Update anomaly timestamps
+  const tbody = document.getElementById('anomaly-tbody');
+  if (tbody && anomalies.length) {
+    const tds = tbody.querySelectorAll('tr td:last-child');
+    tds.forEach((td, i) => {
+      if (anomalies[i]) {
+        const s = Math.round((Date.now() - anomalies[i].time) / 1000);
+        td.textContent = s < 60 ? `${s}s ago` : `${Math.floor(s/60)}m ago`;
+      }
+    });
+  }
+}
+
+// Warm start
+for (let i = 0; i < MAX_CHART_POINTS; i++) {
+  chartData[i] = Math.round(baseEps + randBetween(-400, 400));
+  const d = generateEvent(); devicesSeen.add(d.deviceId);
+}
+totalEvents = randInt(8_000_000, 12_000_000);
+
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>

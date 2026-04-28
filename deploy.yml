@@ -1,0 +1,245 @@
+name: CI/CD — Azure Real-Time Pipeline
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  TF_VERSION: "1.6.4"
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+jobs:
+  # --------------------------------------------------------------------------
+  # JOB 1: Lint + test Python scripts
+  # --------------------------------------------------------------------------
+  python-checks:
+    name: Python lint & unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install ruff mypy pytest pytest-cov pytest-asyncio
+
+      - name: Lint with Ruff
+        run: ruff check scripts/ --select E,W,F,I --output-format=github
+
+      - name: Type check with mypy
+        run: mypy scripts/ --ignore-missing-imports --no-strict-optional
+
+      - name: Run unit tests
+        run: |
+          pytest tests/unit/ \
+            --cov=scripts \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -v
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        with:
+          file: coverage.xml
+          fail_ci_if_error: true
+
+  # --------------------------------------------------------------------------
+  # JOB 2: Validate Terraform (all envs)
+  # --------------------------------------------------------------------------
+  terraform-validate:
+    name: Terraform validate & plan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts/iac
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Terraform ${{ env.TF_VERSION }}
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform format check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init (dry-run backend)
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: tflint
+        uses: terraform-linters/setup-tflint@v4
+      - run: |
+          tflint --init
+          tflint --format compact
+
+      - name: Terraform plan (staging)
+        if: github.ref == 'refs/heads/staging'
+        run: |
+          terraform init
+          terraform plan \
+            -var="environment=staging" \
+            -var="owner_email=${{ secrets.OWNER_EMAIL }}" \
+            -out=tfplan-staging
+        env:
+          TF_WORKSPACE: staging
+
+      - name: Terraform plan (prod)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          terraform init
+          terraform plan \
+            -var="environment=prod" \
+            -var="owner_email=${{ secrets.OWNER_EMAIL }}" \
+            -out=tfplan-prod
+        env:
+          TF_WORKSPACE: prod
+
+  # --------------------------------------------------------------------------
+  # JOB 3: Deploy to Staging (on push to staging branch)
+  # --------------------------------------------------------------------------
+  deploy-staging:
+    name: Deploy → Staging
+    needs: [python-checks, terraform-validate]
+    runs-on: ubuntu-latest
+    environment: staging
+    if: github.ref == 'refs/heads/staging'
+    defaults:
+      run:
+        working-directory: scripts/iac
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Terraform apply — staging
+        run: |
+          terraform init
+          terraform apply \
+            -var="environment=staging" \
+            -var="owner_email=${{ secrets.OWNER_EMAIL }}" \
+            -auto-approve
+        env:
+          TF_WORKSPACE: staging
+
+      - name: Deploy Databricks job
+        run: |
+          pip install databricks-cli
+          databricks configure --token \
+            --host ${{ secrets.DATABRICKS_HOST_STAGING }} \
+            --token ${{ secrets.DATABRICKS_TOKEN_STAGING }}
+          databricks jobs reset \
+            --job-id ${{ secrets.DATABRICKS_JOB_ID_STAGING }} \
+            --json @databricks_job_config.json
+
+      - name: Run integration smoke tests
+        run: |
+          pytest tests/integration/ \
+            -v \
+            --azure-live \
+            -m "smoke" \
+            --tb=short
+
+  # --------------------------------------------------------------------------
+  # JOB 4: Deploy to Production (on push to main, requires approval)
+  # --------------------------------------------------------------------------
+  deploy-production:
+    name: Deploy → Production
+    needs: [deploy-staging]
+    runs-on: ubuntu-latest
+    environment: production   # requires manual approval in GitHub Environments
+    if: github.ref == 'refs/heads/main'
+    defaults:
+      run:
+        working-directory: scripts/iac
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Terraform apply — production
+        run: |
+          terraform init
+          terraform apply \
+            -var="environment=prod" \
+            -var="owner_email=${{ secrets.OWNER_EMAIL }}" \
+            -var="synapse_sku=DW1000c" \
+            -var="eventhub_throughput_units=20" \
+            -auto-approve
+        env:
+          TF_WORKSPACE: prod
+
+      - name: Deploy Databricks streaming job
+        run: |
+          pip install databricks-cli
+          databricks configure --token \
+            --host ${{ secrets.DATABRICKS_HOST_PROD }} \
+            --token ${{ secrets.DATABRICKS_TOKEN_PROD }}
+          # Run new job version alongside old (blue-green)
+          NEW_RUN=$(databricks jobs run-now \
+            --job-id ${{ secrets.DATABRICKS_JOB_ID_PROD }} \
+            --json '{"python_params": ["--mode", "blue-green"]}' \
+            | jq -r '.run_id')
+          echo "New run ID: $NEW_RUN"
+
+      - name: Post deployment health check
+        run: |
+          python scripts/monitoring/health_check.py \
+            --environment prod \
+            --timeout 300
+
+      - name: Notify Slack on success
+        if: success()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "✅ Pipeline deployed to *production* — commit `${{ github.sha }}`",
+              "channel": "#data-engineering"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🚨 Production deployment *failed* — commit `${{ github.sha }}`",
+              "channel": "#data-engineering-alerts"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
