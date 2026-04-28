@@ -254,6 +254,3 @@ Pull requests are welcome. For major changes, please open an issue first. See [C
 
 ---
 
-## 📄 License
-
-MIT © 2024. Built to impress recruiters and actually work in production.
